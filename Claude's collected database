@@ -1,1 +1,821 @@
+-- Sistema de Comandos de Chat para Roblox Studio
+-- Coloque este script em ServerScriptService
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Configurações
+local ADMIN_PERMISSION = true -- Defina como false se quiser que todos possam usar
+local PREFIX = "/" -- Prefixo dos comandos
+
+-- Lista de administradores (adicione os nomes dos jogadores que podem usar os comandos)
+local ADMINS = {
+    "SeuNomeAqui", -- Substitua pelo seu nome de usuário
+    "OutroAdmin"   -- Adicione mais nomes conforme necessário
+}
+
+-- Função para verificar se um jogador é admin
+local function isAdmin(player)
+    if not ADMIN_PERMISSION then
+        return true -- Se não requer permissão, todos podem usar
+    end
+    
+    for _, adminName in pairs(ADMINS) do
+        if player.Name == adminName then
+            return true
+        end
+    end
+    return false
+end
+
+-- Função para encontrar um jogador pelo nome (suporta nomes parciais)
+local function findPlayer(name)
+    name = name:lower()
+    
+    -- Verifica se é "me" ou "eu"
+    if name == "me" or name == "eu" then
+        return nil -- Retorna nil para indicar que é o próprio jogador
+    end
+    
+    -- Procura por nome exato primeiro
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Name:lower() == name then
+            return player
+        end
+    end
+    
+    -- Procura por nome parcial
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Name:lower():find(name) then
+            return player
+        end
+    end
+    
+    return false -- Jogador não encontrado
+end
+
+-- Função para enviar mensagem de feedback
+local function sendMessage(player, message)
+    -- Cria uma mensagem no chat do jogador
+    local chatMessage = Instance.new("Message")
+    chatMessage.Text = message
+    chatMessage.Parent = player.PlayerGui
+    
+    -- Remove a mensagem após 3 segundos
+    game:GetService("Debris"):AddItem(chatMessage, 3)
+end
+
+-- Comando /speed
+local function speedCommand(player, args)
+    if #args < 2 then
+        sendMessage(player, "Uso: /speed [jogador] [velocidade]")
+        return
+    end
+    
+    local targetName = args[1]
+    local speed = tonumber(args[2])
+    
+    if not speed then
+        sendMessage(player, "Erro: Velocidade deve ser um número!")
+        return
+    end
+    
+    -- Limita a velocidade para evitar problemas
+    if speed > 1000 then
+        speed = 1000
+        sendMessage(player, "Velocidade limitada a 1000 para segurança.")
+    elseif speed < 0 then
+        speed = 0
+    end
+    
+    local targetPlayer
+    
+    -- Se o alvo é "me" ou "eu", usa o próprio jogador
+    if targetName:lower() == "me" or targetName:lower() == "eu" then
+        targetPlayer = player
+    else
+        targetPlayer = findPlayer(targetName)
+        
+        if targetPlayer == false then
+            sendMessage(player, "Jogador '" .. targetName .. "' não encontrado!")
+            return
+        end
+    end
+    
+    -- Aplica a velocidade
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Humanoid") then
+        targetPlayer.Character.Humanoid.WalkSpeed = speed
+        
+        if targetPlayer == player then
+            sendMessage(player, "Sua velocidade foi alterada para " .. speed)
+        else
+            sendMessage(player, "Velocidade de " .. targetPlayer.Name .. " alterada para " .. speed)
+            sendMessage(targetPlayer, "Sua velocidade foi alterada para " .. speed .. " por " .. player.Name)
+        end
+    else
+        sendMessage(player, "Não foi possível alterar a velocidade do jogador!")
+    end
+end
+
+-- Sistema principal de comandos
+local commands = {
+    ["speed"] = speedCommand,
+    ["velocidade"] = speedCommand, -- Alias em português
+}
+
+-- Função para processar comandos
+local function processCommand(player, message)
+    -- Verifica se a mensagem começa com o prefixo
+    if not message:sub(1, 1) == PREFIX then
+        return
+    end
+    
+    -- Verifica se o jogador tem permissão
+    if not isAdmin(player) then
+        sendMessage(player, "Você não tem permissão para usar comandos!")
+        return
+    end
+    
+    -- Remove o prefixo e divide a mensagem em argumentos
+    local command = message:sub(2):lower()
+    local args = {}
+    
+    for word in command:gmatch("%S+") do
+        table.insert(args, word)
+    end
+    
+    if #args == 0 then
+        return
+    end
+    
+    local commandName = args[1]
+    table.remove(args, 1) -- Remove o nome do comando dos argumentos
+    
+    -- Executa o comando se existir
+    if commands[commandName] then
+        commands[commandName](player, args)
+    else
+        sendMessage(player, "Comando '" .. commandName .. "' não encontrado!")
+    end
+end
+
+-- Conecta o sistema ao chat dos jogadores
+Players.PlayerAdded:Connect(function(player)
+    player.Chatted:Connect(function(message)
+        processCommand(player, message)
+    end)
+end)
+
+-- Para jogadores que já estão no jogo
+for _, player in pairs(Players:GetPlayers()) do
+    player.Chatted:Connect(function(message)
+        processCommand(player, message)
+    end)
+end
+
+print("Sistema de Comandos de Chat carregado!")
+print("Comandos disponíveis:")
+print("  /speed [jogador] [velocidade] - Altera a velocidade de caminhada")
+print("  /velocidade [jogador] [velocidade] - Alias para /speed")
+print("Use 'me' ou 'eu' como nome do jogador para se referir a você mesmo")
+
+>--------------------------------------------------<
+
+-- StellarVault Module Script
+-- Sistema avançado de salvamento e controle de dados
+-- Apenas para uso no servidor
+
+local RunService = game:GetService("RunService")
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+
+-- Verificação de segurança - apenas servidor pode usar
+if RunService:IsClient() then
+    error("StellarVault: Este módulo só pode ser usado no servidor!")
+end
+
+local StellarVault = {
+    Client = {}, -- Tudo relacionado com o cliente
+    Server = {}, -- Tudo relacionado com o servidor
+    
+    -- Dados internos do sistema
+    _playerData = {}, -- Cache dos dados dos jogadores
+    _dataStores = {}, -- Cache dos DataStores
+}
+
+-- Metatable para controle de acesso
+local StellarVaultMeta = {}
+StellarVaultMeta.__index = StellarVault
+
+-- Classe para controle de tabelas
+local TableController = {}
+TableController.__index = TableController
+
+function TableController.new(tableName, vaultInstance)
+    local self = setmetatable({}, TableController)
+    self.tableName = tableName
+    self.vault = vaultInstance
+    self.player = nil
+    return self
+end
+
+-- Função para definir o player (obrigatório)
+function TableController:setPlayer(playerOrUserId)
+    if typeof(playerOrUserId) == "Instance" and playerOrUserId:IsA("Player") then
+        self.player = playerOrUserId.UserId
+    elseif typeof(playerOrUserId) == "number" then
+        self.player = playerOrUserId
+    else
+        error("StellarVault: Player deve ser uma instância de Player ou UserId (número)")
+    end
+    return self
+end
+
+-- Função auxiliar para processar operações matemáticas
+local function processOperation(currentValue, newValue)
+    if typeof(newValue) == "string" then
+        local operation = string.sub(newValue, 1, 1)
+        local operand = tonumber(string.sub(newValue, 2))
+        
+        if not operand then
+            error("StellarVault: Operação inválida. Use +, -, *, / seguido de um número")
+        end
+        
+        if typeof(currentValue) ~= "number" then
+            currentValue = 0 -- Valor padrão se não for número
+        end
+        
+        if operation == "+" then
+            return currentValue + operand
+        elseif operation == "-" then
+            return currentValue - operand
+        elseif operation == "*" then
+            return currentValue * operand
+        elseif operation == "/" then
+            if operand == 0 then
+                error("StellarVault: Divisão por zero não é permitida")
+            end
+            return currentValue / operand
+        else
+            error("StellarVault: Operação '" .. operation .. "' não é válida. Use +, -, *, /")
+        end
+    else
+        return newValue
+    end
+end
+
+-- Função para incrementar/adicionar informações com suporte a operações matemáticas
+function TableController:increment(data)
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    -- Inicializa dados do jogador se não existir
+    if not self.vault._playerData[self.player] then
+        self.vault._playerData[self.player] = {}
+    end
+    
+    -- Inicializa tabela se não existir
+    if not self.vault._playerData[self.player][self.tableName] then
+        self.vault._playerData[self.player][self.tableName] = {}
+    end
+    
+    local targetTable = self.vault._playerData[self.player][self.tableName]
+    
+    if typeof(data) == "table" then
+        -- Processa cada entrada da tabela
+        for key, value in pairs(data) do
+            if typeof(value) == "table" then
+                -- Se for uma tabela, faz merge recursivo
+                if not targetTable[key] then
+                    targetTable[key] = {}
+                end
+                
+                if typeof(targetTable[key]) == "table" then
+                    for subKey, subValue in pairs(value) do
+                        targetTable[key][subKey] = processOperation(targetTable[key][subKey], subValue)
+                    end
+                else
+                    targetTable[key] = value
+                end
+            else
+                -- Processa operação matemática ou atribui valor
+                targetTable[key] = processOperation(targetTable[key], value)
+            end
+        end
+    else
+        -- Adiciona como entrada em array
+        table.insert(targetTable, data)
+    end
+    
+    return self
+end
+
+-- Função para obter dados da tabela
+function TableController:get(key)
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    if self.vault._playerData[self.player] and self.vault._playerData[self.player][self.tableName] then
+        local data = self.vault._playerData[self.player][self.tableName]
+        return key and data[key] or data
+    end
+    
+    return key and nil or {}
+end
+
+-- Função para definir dados (substituir completamente)
+function TableController:set(data, key)
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    if not self.vault._playerData[self.player] then
+        self.vault._playerData[self.player] = {}
+    end
+    
+    if not self.vault._playerData[self.player][self.tableName] then
+        self.vault._playerData[self.player][self.tableName] = {}
+    end
+    
+    if key then
+        -- Define uma chave específica
+        self.vault._playerData[self.player][self.tableName][key] = data
+    else
+        -- Substitui toda a tabela
+        self.vault._playerData[self.player][self.tableName] = data
+    end
+    
+    return self
+end
+
+-- Função para deletar informações ou sub-tabelas
+function TableController:delete(key)
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    if not key then
+        error("StellarVault: Chave é obrigatória para deletar")
+    end
+    
+    -- Verifica se não está tentando deletar tabela principal
+    if key == self.tableName then
+        error("StellarVault: Não é possível deletar a tabela principal '" .. self.tableName .. "'")
+    end
+    
+    if self.vault._playerData[self.player] and self.vault._playerData[self.player][self.tableName] then
+        local targetTable = self.vault._playerData[self.player][self.tableName]
+        
+        if typeof(key) == "table" then
+            -- Deleta múltiplas chaves
+            for _, k in pairs(key) do
+                if k ~= self.tableName then
+                    targetTable[k] = nil
+                end
+            end
+        else
+            -- Deleta uma chave específica
+            targetTable[key] = nil
+        end
+    end
+    
+    return self
+end
+
+-- Função para resetar dados da tabela
+function TableController:reset()
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    if self.vault._playerData[self.player] then
+        self.vault._playerData[self.player][self.tableName] = {}
+    end
+    
+    return self
+end
+
+-- Função para verificar se uma chave existe
+function TableController:exists(key)
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    if self.vault._playerData[self.player] and self.vault._playerData[self.player][self.tableName] then
+        return self.vault._playerData[self.player][self.tableName][key] ~= nil
+    end
+    
+    return false
+end
+
+-- Função para obter todas as chaves da tabela
+function TableController:keys()
+    if not self.player then
+        error("StellarVault: Player não foi definido. Use :setPlayer() primeiro")
+    end
+    
+    local keys = {}
+    if self.vault._playerData[self.player] and self.vault._playerData[self.player][self.tableName] then
+        for key, _ in pairs(self.vault._playerData[self.player][self.tableName]) do
+            table.insert(keys, key)
+        end
+    end
+    
+    return keys
+end
+
+-- Função para salvar no DataStore
+function TableController:save(player, dataStoreName)
+    if not player or not dataStoreName then
+        error("StellarVault: Player e DataStoreName são obrigatórios para salvar")
+    end
+    
+    local userId = typeof(player) == "Instance" and player.UserId or player
+    return self.vault:_savePlayerData(userId, dataStoreName)
+end
+
+-- Função para carregar do DataStore
+function TableController:load(player, dataStoreName)
+    if not player or not dataStoreName then
+        error("StellarVault: Player e DataStoreName são obrigatórios para carregar")
+    end
+    
+    local userId = typeof(player) == "Instance" and player.UserId or player
+    return self.vault:_loadPlayerData(userId, dataStoreName)
+end
+
+-- Função principal para visualizar/acessar tabelas
+function StellarVault:view(tableName)
+    if not tableName then
+        error("StellarVault: Nome da tabela é obrigatório")
+    end
+    
+    -- Verifica se a tabela principal existe
+    if not self[tableName] then
+        self[tableName] = {}
+    end
+    
+    return TableController.new(tableName, self)
+end
+
+-- Alias para view (compatibilidade)
+function StellarVault:table(tableName)
+    return self:view(tableName)
+end
+
+-- Função para criar novas tabelas principais dinamicamente
+function StellarVault:createTable(tableName)
+    if not tableName then
+        error("StellarVault: Nome da tabela é obrigatório")
+    end
+    
+    if typeof(tableName) ~= "string" then
+        error("StellarVault: Nome da tabela deve ser uma string")
+    end
+    
+    -- Cria a tabela principal se não existir
+    if not self[tableName] then
+        self[tableName] = {}
+        print("StellarVault: Tabela principal '" .. tableName .. "' criada com sucesso")
+    else
+        warn("StellarVault: Tabela principal '" .. tableName .. "' já existe")
+    end
+    
+    return self:view(tableName)
+end
+
+-- Função para listar todas as tabelas principais
+function StellarVault:getTables()
+    local tables = {}
+    for key, value in pairs(self) do
+        if typeof(value) == "table" and not string.match(key, "^_") and key ~= "getTables" and key ~= "view" and key ~= "table" and key ~= "createTable" then
+            table.insert(tables, key)
+        end
+    end
+    return tables
+end
+
+-- Função interna para obter/criar DataStore
+function StellarVault:_getDataStore(dataStoreName)
+    if not self._dataStores[dataStoreName] then
+        self._dataStores[dataStoreName] = DataStoreService:GetDataStore(dataStoreName)
+    end
+    return self._dataStores[dataStoreName]
+end
+
+-- Função interna para salvar dados do jogador
+function StellarVault:_savePlayerData(userId, dataStoreName)
+    local success, errorMessage = pcall(function()
+        local dataStore = self:_getDataStore(dataStoreName)
+        local playerData = self._playerData[userId]
+        
+        if playerData then
+            -- Compacta dados para economia de espaço
+            local compactedData = {}
+            for tableName, tableData in pairs(playerData) do
+                if next(tableData) then -- Só salva se não estiver vazio
+                    compactedData[tableName] = tableData
+                end
+            end
+            
+            -- Salva com timestamp
+            local dataToSave = {
+                data = compactedData,
+                timestamp = os.time(),
+                version = "1.0"
+            }
+            
+            dataStore:SetAsync(tostring(userId), dataToSave)
+            print("StellarVault: Dados salvos com sucesso para o jogador " .. userId)
+            return true
+        end
+    end)
+    
+    if not success then
+        warn("StellarVault: Erro ao salvar dados para o jogador " .. userId .. ": " .. errorMessage)
+        return false, errorMessage
+    end
+    
+    return true
+end
+
+-- Função interna para carregar dados do jogador
+function StellarVault:_loadPlayerData(userId, dataStoreName)
+    local success, result = pcall(function()
+        local dataStore = self:_getDataStore(dataStoreName)
+        return dataStore:GetAsync(tostring(userId))
+    end)
+    
+    if success and result then
+        -- Carrega dados com verificação de versão
+        local playerData = {}
+        if result.data then
+            playerData = result.data
+        end
+        
+        -- Inicializa estrutura para o jogador
+        if not self._playerData[userId] then
+            self._playerData[userId] = {}
+        end
+        
+        -- Merge com dados existentes
+        for tableName, tableData in pairs(playerData) do
+            self._playerData[userId][tableName] = tableData
+        end
+        
+        print("StellarVault: Dados carregados com sucesso para o jogador " .. userId)
+        return true, playerData
+    else
+        warn("StellarVault: Erro ao carregar dados para o jogador " .. userId .. ": " .. (result or "Dados não encontrados"))
+        -- Inicializa com dados vazios
+        if not self._playerData[userId] then
+            self._playerData[userId] = {}
+        end
+        return false, result
+    end
+end
+
+-- Função para obter dados de um jogador específico
+function StellarVault:getPlayerData(userId, tableName)
+    if tableName then
+        return self._playerData[userId] and self._playerData[userId][tableName] or {}
+    end
+    return self._playerData[userId] or {}
+end
+
+-- Função para limpar dados de um jogador da memória
+function StellarVault:clearPlayerData(userId)
+    self._playerData[userId] = nil
+end
+
+-- Função para limpar dados de uma tabela específica
+function StellarVault:clearTableData(userId, tableName)
+    if self._playerData[userId] and self._playerData[userId][tableName] then
+        self._playerData[userId][tableName] = {}
+    end
+end
+
+-- Metatable para controle de acesso
+
+>--------------------------------------------------<
+
+-- Script para criar blocos que caem do céu e adicionam moedas
+-- Coloque este script no ServerScriptService
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local TweenService = game:GetService("TweenService")
+
+-- Requer o módulo StellarVault (ajuste o caminho conforme necessário)
+local StellarVault = require(script.Parent.StellarVault) -- Ajuste o caminho do módulo
+
+-- Configurações
+local SPAWN_HEIGHT = 200 -- Altura onde os blocos aparecem
+local SPAWN_AREA = 100 -- Área de spawn (quadrado)
+local SPAWN_INTERVAL = 2 -- Intervalo entre spawns (segundos)
+local COIN_VALUE = 25 -- Valor das moedas por bloco
+local BLOCK_LIFETIME = 15 -- Tempo de vida do bloco (segundos)
+
+-- Função para criar um bloco de moeda
+local function createCoinBlock()
+    local block = Instance.new("Part")
+    block.Name = "CoinBlock"
+    block.Size = Vector3.new(4, 4, 4)
+    block.Shape = Enum.PartType.Block
+    block.Material = Enum.Material.Neon
+    block.BrickColor = BrickColor.new("Bright yellow")
+    block.CanCollide = false
+    block.Anchored = false
+    
+    -- Posição aleatória no céu
+    local randomX = math.random(-SPAWN_AREA, SPAWN_AREA)
+    local randomZ = math.random(-SPAWN_AREA, SPAWN_AREA)
+    block.Position = Vector3.new(randomX, SPAWN_HEIGHT, randomZ)
+    
+    -- Adiciona um BodyVelocity para controlar a queda
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+    bodyVelocity.Velocity = Vector3.new(0, -20, 0) -- Velocidade de queda
+    bodyVelocity.Parent = block
+    
+    -- Adiciona rotação para efeito visual
+    local bodyAngularVelocity = Instance.new("BodyAngularVelocity")
+    bodyAngularVelocity.AngularVelocity = Vector3.new(
+        math.random(-5, 5),
+        math.random(-5, 5),
+        math.random(-5, 5)
+    )
+    bodyAngularVelocity.Parent = block
+    
+    -- Adiciona um efeito de brilho
+    local pointLight = Instance.new("PointLight")
+    pointLight.Brightness = 2
+    pointLight.Color = Color3.fromRGB(255, 255, 0)
+    pointLight.Range = 10
+    pointLight.Parent = block
+    
+    -- Adiciona som (opcional)
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxasset://sounds/electronicpingshort.wav" -- Som padrão do Roblox
+    sound.Volume = 0.5
+    sound.Parent = block
+    
+    -- Função para quando o bloco é tocado
+    local function onTouch(hit)
+        local humanoid = hit.Parent:FindFirstChild("Humanoid")
+        if humanoid then
+            local player = Players:GetPlayerFromCharacter(hit.Parent)
+            if player then
+                -- Obtém moedas antes de adicionar
+                local coinSystem = StellarVault:view("Client")
+                coinSystem:setPlayer(player)
+                local coinsBefore = coinSystem:get("coins") or 0
+                
+                -- Adiciona moedas usando StellarVault
+                coinSystem:increment({coins = "+" .. COIN_VALUE})
+                
+                -- Obtém moedas após adicionar
+                local coinsAfter = coinSystem:get("coins") or 0
+                local coinsAdded = coinsAfter - coinsBefore
+                
+                -- Print detalhado do sistema
+                print("💰 " .. player.Name .. " coletou um bloco!")
+                print("   ➤ Moedas adicionadas: +" .. coinsAdded)
+                print("   ➤ Moedas antes: " .. coinsBefore)
+                print("   ➤ Moedas depois: " .. coinsAfter)
+                print("   ➤ Total ganho: " .. coinsAdded .. " moedas")
+                
+                -- Toca o som
+                sound:Play()
+                
+                -- Efeito visual de coleta
+                local collectEffect = block:Clone()
+                collectEffect.Name = "CollectEffect"
+                collectEffect.CanCollide = false
+                collectEffect.Anchored = true
+                collectEffect.Parent = workspace
+                
+                -- Remove os componentes de física do efeito (com verificação)
+                local bodyVel = collectEffect:FindFirstChild("BodyVelocity")
+                if bodyVel then
+                    bodyVel:Destroy()
+                end
+                
+                local bodyAngVel = collectEffect:FindFirstChild("BodyAngularVelocity")
+                if bodyAngVel then
+                    bodyAngVel:Destroy()
+                end
+                
+                -- Anima o efeito de coleta
+                local tweenInfo = TweenInfo.new(
+                    0.5, -- Duração
+                    Enum.EasingStyle.Quad,
+                    Enum.EasingDirection.Out
+                )
+                
+                local tween = TweenService:Create(collectEffect, tweenInfo, {
+                    Size = Vector3.new(6, 6, 6),
+                    Transparency = 1,
+                    Position = collectEffect.Position + Vector3.new(0, 5, 0)
+                })
+                
+                tween:Play()
+                
+                -- Remove o efeito após a animação
+                tween.Completed:Connect(function()
+                    collectEffect:Destroy()
+                end)
+                
+                -- Remove o bloco original
+                block:Destroy()
+            end
+        end
+    end
+    
+    -- Conecta o evento de toque
+    block.Touched:Connect(onTouch)
+    
+    -- Coloca o bloco no workspace
+    block.Parent = workspace
+    
+    -- Remove o bloco após o tempo limite
+    Debris:AddItem(block, BLOCK_LIFETIME)
+end
+
+-- Função para mostrar as moedas de todos os jogadores
+local function showAllCoins()
+    print("🏆 === MOEDAS ATUAIS ===")
+    for _, player in pairs(Players:GetPlayers()) do
+        local coinSystem = StellarVault:view("Client")
+        coinSystem:setPlayer(player)
+        local coins = coinSystem:get("coins") or 0
+        print("💰 " .. player.Name .. ": " .. coins .. " moedas")
+    end
+    print("========================")
+end
+
+-- Função principal de inicialização
+local function startCoinSystem()
+    print("🎮 Sistema de Moedas iniciado!")
+    print("📦 Blocos aparecerão a cada " .. SPAWN_INTERVAL .. " segundos")
+    print("💰 Cada bloco vale " .. COIN_VALUE .. " moedas")
+    
+    -- Loop para spawnar blocos
+    spawn(function()
+        while true do
+            wait(SPAWN_INTERVAL)
+            createCoinBlock()
+        end
+    end)
+    
+    -- Loop para mostrar moedas a cada 5 segundos
+    spawn(function()
+        while true do
+            wait(5)
+            showAllCoins()
+        end
+    end)
+end
+
+-- Inicializa o sistema quando algum jogador entrar
+local function onPlayerAdded(player)
+    print("🎯 Jogador " .. player.Name .. " entrou no jogo!")
+    
+    -- Inicializa as moedas do jogador
+    local coinSystem = StellarVault:view("Client")
+    coinSystem:setPlayer(player)
+    coinSystem:increment({coins = 0}) -- Inicializa com 0 moedas
+end
+
+-- Conecta eventos
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+-- Inicializa para jogadores já conectados
+for _, player in pairs(Players:GetPlayers()) do
+    onPlayerAdded(player)
+end
+
+-- Inicia o sistema
+startCoinSystem()
+
+-- Comando de teste (opcional - apenas para desenvolvimento)
+game.Players.PlayerAdded:Connect(function(player)
+    player.Chatted:Connect(function(message)
+        if message:lower() == "/coins" then
+            local coinSystem = StellarVault:view("Client")
+            coinSystem:setPlayer(player)
+            local coins = coinSystem:get("coins") or 0
+            print("💰 " .. player.Name .. " tem " .. coins .. " moedas")
+        elseif message:lower() == "/spawn" then
+            -- Comando para spawnar bloco manualmente (só para teste)
+            createCoinBlock()
+            print("📦 Bloco spawnado manualmente por " .. player.Name)
+        end
+    end)
+end)
+setmetatable(StellarVault, StellarVaultMeta)
+
+return StellarVault
