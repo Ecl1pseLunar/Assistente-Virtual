@@ -1,1 +1,1182 @@
+Armazenamento de dados:
 
+>-------------------------------------------------------<
+
+O exemplo de código a seguir recupera todas as versões após um início especificado tempo, ordenado por ordem crescente.
+
+Recuperando versões do DataStore com um filtro de data
+local DataStoreService = game:GetService("DataStoreService")
+
+local experienceStore = DataStoreService:GetDataStore("PlayerExperience")
+
+local time = DateTime.fromUniversalTime(2020, 10, 09, 01, 42)
+
+local listSuccess, pages = pcall(function()
+	return experienceStore:ListVersionsAsync("User_1234", nil, time.UnixTimestampMillis)
+end)
+
+if listSuccess then
+	local items = pages:GetCurrentPage()
+
+	for key, info in pairs(items) do
+		print("Key:", key, "; Version:", info.Version, "; Created:", info.CreatedTime, "; Deleted:", info.IsDeleted)
+	end
+end
+
+>-------------------------------------------------------<
+
+O exemplo de código a seguir recupera versões de chave do armazenamento de dados usando carimbos de data/hora.
+
+Recuperando versões do DataStore por tempo
+local DataStoreService = game:GetService("DataStoreService")
+local dataStore = DataStoreService:GetDataStore("DataStore")
+local key = "key-123"
+
+function setData(data)
+	local success, result = pcall(function()
+		dataStore:SetAsync(key, data)
+	end)
+	if not success then
+		warn(result)
+	end
+end
+
+function getVersionAtTime(timestamp)
+	local success, result, keyInfo = pcall(function()
+		return dataStore:GetVersionAtTimeAsync(key, timestamp.UnixTimestampMillis)
+	end)
+	if success then
+		if result == nil then
+			print("No version found at time")
+		else
+			print(result, keyInfo.Version)
+		end
+	else
+		warn(result)
+	end
+end
+
+-- Previously ran at 2024/12/02 6:00 UTC
+setData("version 1")
+
+-- Previously ran at 2024/12/02 9:00 UTC
+setData("version 2")
+
+-- Prints "No version found at time"
+local time1 = DateTime.fromUniversalTime(2024, 12, 02, 05, 00)
+getVersionAtTime(time1)
+
+-- Prints "version 1 <version>"
+local time2 = DateTime.fromUniversalTime(2024, 12, 02, 07, 00)
+getVersionAtTime(time2)
+
+-- Prints "version 2 <version>"
+local time3 = DateTime.fromUniversalTime(2024, 12, 02, 10, 00)
+getVersionAtTime(time3)
+
+>-------------------------------------------------------<
+
+Um Armazenamento de Dados Ordenados é essencialmente um GlobalDataStore com a exceção de que os valores armazenados devem ser inteiros positivos .Ela expõe um método GetSortedAsync() que permite a inspeção das entradas em ordem ordenada usando um ObjetoDataStorePages.
+
+Armazenamentos de dados ordenados não suportam versões e metadados, então DataStoreKeyInfo é sempre nil para chaves em um OrderedDataStore .Se você precisar de Suportea versões e metadados, use um DataStore .
+
+Armazenamentos de dados ordenados não suportam o parâmetro opcional userIds para SetAsync() ou IncrementAsync().
+
+Veja Armazenamentos de Dados para uma visão geral sobre o uso de armazenamentos de dados ordenados.
+
+Amostras de código
+Este exemplo de código demonstra o uso de um OrderedDataStore e páginas.
+
+Noções básicas do OrderedDataStore
+local DataStoreService = game:GetService("DataStoreService")
+local pointsStore = DataStoreService:GetOrderedDataStore("Points")
+
+local function printTopTenPlayers()
+	local isAscending = false
+	local pageSize = 10
+	local pages = pointsStore:GetSortedAsync(isAscending, pageSize)
+	local topTen = pages:GetCurrentPage()
+
+	-- The data in 'topTen' is stored with the index being the index on the page
+	-- For each item, 'data.key' is the key in the OrderedDataStore and 'data.value' is the value
+	for rank, data in ipairs(topTen) do
+		local name = data.key
+		local points = data.value
+		print(name .. " is ranked #" .. rank .. " with " .. points .. "points")
+	end
+
+	-- Potentially load the next page...
+	--pages:AdvanceToNextPageAsync()
+end
+
+-- Create some data
+pointsStore:SetAsync("Alex", 55)
+pointsStore:SetAsync("Charley", 32)
+pointsStore:SetAsync("Sydney", 68)
+
+-- Display the top ten players
+printTopTenPlayers()
+
+>-------------------------------------------------------<
+
+Serviço de Grupo:
+
+O GroupService é um serviço que permite que os desenvolvedores recuperem informações sobre um grupo do Roblox de dentro de um jogo.
+
+Informações básicas sobre o grupo, incluindo seu nome, descrição, Proprietário, papéis e emblema podem ser recuperadas usando GroupService:GetGroupInfoAsync().Listas de aliados e inimigos de um grupo podem ser recuperadas usando GroupService:GetAlliesAsync() e GroupService:GetEnemiesAsync().
+
+O GroupService também pode ser usado para obter uma lista de grupos aos quais um jogador é membro, usando GroupService:GetGroupsAsync() .Observe, os desenvolvedores que desejam verificar se um jogador está em um grupo devem usar a função em vez de >.
+
+O serviço tem uma série de aplicações úteis, como detectar se um jogador é aliado ou inimigo ao entrar no jogo.
+
+Amostras de código
+Este exemplo de código demonstra como GroupService e Player:IsInGroup() pode ser usado para determinar se um jogador é um membro de um grupo, ou qualquer um de seus aliados ou inimigos.
+
+Observe como GroupService:GetAlliesAsync() e GroupService:GetEnemiesAsync() usa objetos StandardPages como um utilitário é usada para convertê-los em aliados.
+
+Verificador de Aliado/Inimigo em Grupo
+local GroupService = game:GetService("GroupService")
+local Players = game:GetService("Players")
+
+-- Define group ID here
+local GROUP_ID = 271454
+
+-- Utility function for dealing with pages
+local function pagesToArray(pages)
+	local array = {}
+	while true do
+		for _, v in ipairs(pages:GetCurrentPage()) do
+			table.insert(array, v)
+		end
+		if pages.IsFinished then
+			break
+		end
+		pages:AdvanceToNextPageAsync()
+	end
+	return array
+end
+
+-- Get lists of allies and enemies
+local alliesPages = GroupService:GetAlliesAsync(GROUP_ID)
+local enemiesPages = GroupService:GetEnemiesAsync(GROUP_ID)
+
+-- Convert to array
+local allies = pagesToArray(alliesPages)
+local enemies = pagesToArray(enemiesPages)
+
+local function playerAdded(player)
+	-- Check to see if the player is in the group
+	if player:IsInGroup(GROUP_ID) then
+		print(player.Name .. " is a member!")
+	else
+		local isAlly, isEnemy = false, false
+
+		-- Check to see if the player is in any ally groups
+		for _, groupInfo in ipairs(allies) do
+			local groupId = groupInfo.Id
+			if player:IsInGroup(groupId) then
+				isAlly = true
+				break
+			end
+		end
+
+		-- Check to see if the player is in any enemy groups
+		for _, groupInfo in ipairs(enemies) do
+			local groupId = groupInfo.Id
+			if player:IsInGroup(groupId) then
+				isEnemy = true
+				break
+			end
+		end
+
+		if isAlly and not isEnemy then
+			print(player.Name .. " is an ally!")
+		elseif isEnemy and not isAlly then
+			print(player.Name .. " is an enemy!")
+		elseif isEnemy and isAlly then
+			print(player.Name .. " is both an ally and an enemy!")
+		else
+			print(player.Name .. " is neither an ally or an enemy!")
+		end
+	end
+end
+
+-- Listen for new players being added
+Players.PlayerAdded:Connect(playerAdded)
+
+-- Handle players already in game
+for _, player in ipairs(Players:GetPlayers()) do
+	playerAdded(player)
+end
+
+>-------------------------------------------------------<
+
+GetAlliesAsync:
+
+Retorna um objeto StandardPages incluindo informações sobre todos os aliados do grupo especificado.
+
+Essas páginas não incluem uma lista de IDs de grupo, mas sim uma lista de tabelas de informações de grupo, refletindo o formato das retornadas por GroupService:GetGroupInfoAsync().Veja abaixo para a estrutura dessas tabelas.
+
+group = {
+    Name = "Knights of the Seventh Sanctum",
+    Id = 377251,
+    Owner = {
+        Name = "Vilicus",
+        Id = 23415609
+    },
+    EmblemUrl = "http://www.roblox.com/asset/?id=60428602",
+    Description = "We fight alongside the balance to make sure no one becomes to powerful",
+    Roles = {
+        [1] = {
+            Name = "Apprentice",
+            Rank = 1
+        },
+        [2] = {
+            Name = "Warrior",
+            Rank = 2
+        },
+        [3] = {
+            Name = "Earth Walker",
+            Rank = 255
+        }
+    }
+}
+
+>-------------------------------------------------------<
+
+Serviço Http:
+
+HttpService permite que solicitações HTTP sejam enviadas de servidores de jogos usando RequestAsync, GetAsync e PostAsync .Este serviço permite que os jogos sejam integrados com serviços web off-Roblox, como análise de dados, armazenamento de dados, configuração de servidor remoto, relatório de erros, cálculos avançados ou comunicação em tempo real.Além disso, algumas APIs da web do Roblox também podem ser acessadas via HttpService (veja abaixo).
+
+HttpService também abriga os métodos JSONEncode e JSONDecode que são úteis para se comunicar com serviços que usam o formato JSON.Além disso, o método GenerateGUID fornece rótulos aleatórios de 128 bits que podem ser tratados como únicos probabilisticamente em uma variedade de cenários.
+
+Você deve enviar apenas solicitações HTTP para plataformas de terceiros confiáveis para evitar tornar sua experiência vulnerável a riscos de segurança.
+
+Essa propriedade não pode ser interagida em tempo de execução.
+
+Ativar solicitações HTTP
+Métodos de envio de solicitações não são habilitados por padrão. Para enviar solicitações, você deve habilitar solicitações HTTP para sua experiência.
+
+Usar em plugins
+HttpService pode ser usado por plugins do Studio.Eles podem fazer isso para verificar atualizações, enviar dados de uso, baixar conteúdo ou outra lógica de negócios.A primeira vez que um plugin tenta fazer isso, o usuário pode ser solicitado a dar permissão ao plugin para se comunicar com o endereço da web específico.Um usuário pode aceitar, negar e revogar tais permissões a qualquer momento através da janela Gerenciamento de Plugins .
+
+Plugins também podem se comunicar com outro software executando no mesmo computador através dos hosts localhost e 127.0.0.1.Ao executar programas compatíveis com esses plugins, você pode estender a funcionalidade do seu plugin além das capacidades normais do Studio, como interagir com o sistema de arquivos do seu computador.Cuidado que tal software deve ser distribuído separadamente do próprio plugin e pode causar riscos de segurança se você não for cuidadoso.
+
+Chamando domínios do Roblox
+HttpService atualmente só pode chamar um subconjunto dos pontos finais da Nuvem Aberta.Planejamos estender esse conjunto ao longo do tempo, então use o botão Feedback se você tiver pontos finais específicos que gostaria de ver:
+
+Grupos
+Obter Grupo
+Pedidos de Participação de Grupo de Lista
+Aceitar Solicitação de Participação em Grupo
+Rejeitar Solicitação de Participação de Grupo
+Lista de Membros do Grupo
+Atualizar Membros do Grupo
+ListGroupRoles
+Obter Grupo de Papéis
+Obter Grupo de Chamada
+Armazenamentos de Dados
+Devido às restrições atuais em HttpService, apenas caracteres alfanuméricos e o caractere - são permitidos nos parâmetros de caminho da URL para domínios do Roblox.Isso significa que armazenamentos/entradas de dados com outros caracteres especiais são atualmente inacessíveis a partir de HttpService .
+
+Armazenamentos de Dados de Lista
+ListDataStoreEntries
+Criar entrada de armazenamento de dados
+Obter entrada de armazenamento de dados
+Excluir entrada do armazenamento de dados
+Atualizar entrada do armazenamento de dados
+Entrada de Armazenamento de Dados Incrementais
+Itens de inventário
+Itens de Inventário de Lista
+Loja do Criador
+Procura de Recursos da Loja do Criador
+Você pode chamar esses pontos finais da mesma maneira que chamaria qualquer outro ponto final via HttpService.A única diferença é que você deve incluir uma chave de API da Nuvem Aberta na solicitação:
+
+Crie uma chave de API de Nuvem Aberta.
+Salve a chave da API na sua loja de segredos.
+Faça o pedido (exemplo de código abaixo).
+As limitações incluem o seguinte:
+
+Apenas os cabeçalhos x-api-key e content-type são permitidos.
+O cabeçalho x-api-key deve ser um Secret.
+Somente caracteres alfanuméricos e o caractere - são permitidos nos parâmetros do caminho da URL.
+Apenas o protocolo https:// é suportado.
+Limitação de Taxa
+Para cada servidor de jogo do Roblox, há um limite de 500 solicitações HTTP por minuto.Exceder isso pode causar métodos de envio de solicitações a travar completamente por cerca de 30 segundos.Seu pcall() também pode falhar com uma mensagem de "Número de solicitações excedeu limite".
+
+Pedidos de Nuvem abertos consomem o mesmo limite geral de 500 solicitações HTTP por minuto aplicado a todas as outras solicitações.
+
+Cada ponto de extremidade da Nuvem Aberta tem seu próprio limite por proprietário da chave da API (pode ser um usuário ou um grupo) que é aplicado não importa de onde as chamadas venham (HttpService , a web, etc.).Os seguintes cabeçalhos são retornados com cada resposta e permitem que você visualize os limites e sua quota restante:
+
+x-ratelimit-limit - O número total de solicitações permitidas de ser feito por cada proprietário de chave da API (normalmente por minuto).
+x-ratelimit-remaining - O número de solicitações que a chave da API usou ainda é permitido fazer.Se esse número for 0 e você receber um código de status de resposta HTTP 429, então você atingiu o limite de taxa para esse endpoint.
+x-ratelimit-reset - O número de segundos restantes antes do limite de taxa ser reiniciado (ou seja, antes que x-ratelimit-remaining seja redefinido para x-ratelimit-limit).
+Considerações adicionais
+Há restrições de porta.Você não pode usar o porto 1194 ou qualquer porto abaixo de 1024, exceto 80 e 443.Se você tentar usar um porto bloqueado, receberá um erro 403 Forbidden ou ERR_ACCESS_DENIED.
+As solicitações da web podem falhar por muitas razões, então é importante "codificar de forma defensiva" (usar pcall()) e ter um plano para quando as solicitações falharem.
+Embora o protocolo http:// seja suportado, você deve usar https:// sempre que possível.
+Pedidos enviados devem fornecer uma forma segura de autenticação, como uma chave secreta pré-compartilhada, para que os atores maliciosos não possam se fazer passar por um dos servidores de jogos do Roblox.
+Tenha consciência da capacidade geral e das políticas de limitação de taxa dos servidores da web aos quais as solicitações estão sendo enviadas.
+Amostras de código
+Este exemplo de código usa o GetAsync do HttpService para fazer um pedido para Abrir Notificação, um serviço web que fornece dados da NASA.O pedido é feito a um endpoint que fornece informações sobre quantos astronautas estão atualmente no espaço.A resposta é fornecida no formato JSON, então é analisada usando o JSONDecode.Finalmente, os dados de resposta são então processados e impressos no Resultado.
+
+Teste este script colando o código de origem em um Script (HttpService não pode ser usado por LocaisScripts).Além disso, certifique-se de habilitar solicitações HTTP em suas Configurações do Jogo (Início > Configurações do Jogo).
+
+Astronautas no Espaço
+local HttpService = game:GetService("HttpService")
+
+local URL_ASTROS = "http://api.open-notify.org/astros.json"
+
+-- Faça o pedido para o nosso URL de endpoint
+local response = HttpService:GetAsync(URL_ASTROS)
+
+-- Analise a resposta JSON
+local data = HttpService:JSONDecode(response)
+
+-- A informação na tabela de dados depende da resposta JSON
+if data.message == "success" then
+	print("There are currently " .. data.number .. " astronauts in space:")
+	for i, person in pairs(data.people) do
+		print(i .. ": " .. person.name .. " is on " .. person.craft)
+	end
+end
+Este exemplo de código usa o GetAsync do HttpService para fazer uma solicitação a um ponto de extremidade no Open Notify, um site que fornece informações da NASA. O ponto de extremidade fornece informações sobre a localização atual da Estação Espacial Internacional. Este exemplo usa Uma técnica de codificação defensiva que você deve usar ao fazer solicitações da web. Ele encapsula a chamada para GetAsync e JSONDecode em pcall, que protege nosso script de gerar um erro se qualquer um deles falhar. Em seguida, ele verifica o resposta para todos os dados adequados antes de usá-lo. Tudo isso é colocado dentro de um função que retorna true ou false dependendo do sucesso da solicitação.
+
+Sempre que estiver trabalhando com solicitações da Web, você deve se preparar para qualquer coisa que dar errado. Talvez seu ponto de extremidade da Web mude ou fique inativo - você não quer que seu scripts de jogo gerando erros e quebrando seu jogo. Você quer lidar com ambos sucesso e fracasso graciosamente - tenha um plano caso seus dados não sejam disponível. Use pcall e faça muitas verificações de validade (instruções if) em seus dados para garantir que você esteja recebendo exatamente o que espera.
+
+Onde fica a Estação Espacial Internacional?
+local HttpService = game:GetService("HttpService")
+
+-- Where is the International Space Station right now?
+local URL_ISS = "http://api.open-notify.org/iss-now.json"
+
+local function printISS()
+	local response
+	local data
+	-- Use pcall in case something goes wrong
+	pcall(function()
+		response = HttpService:GetAsync(URL_ISS)
+		data = HttpService:JSONDecode(response)
+	end)
+	-- Did our request fail or our JSON fail to parse?
+	if not data then
+		return false
+	end
+
+	-- Fully check our data for validity. This is dependent on what endpoint you're
+	-- to which you're sending your requests. For this example, this endpoint is
+	-- described here:  http://open-notify.org/Open-Notify-API/ISS-Location-Now/
+	if data.message == "success" and data.iss_position then
+		if data.iss_position.latitude and data.iss_position.longitude then
+			print("The International Space Station is currently at:")
+			print(data.iss_position.latitude .. ", " .. data.iss_position.longitude)
+			return true
+		end
+	end
+	return false
+end
+
+if printISS() then
+	print("Success")
+else
+	print("Something went wrong")
+end
+Pastebin.com é um site que permite aos usuários colar texto (geralmente fonte código) para que outros vejam publicamente. Este exemplo de código usa HttpService PostAsync e a API da Web do pastebin para criar automaticamente uma nova pasta pública no local na rede Internet. Como a API do pastebin foi projetada para receber dados como um URL codificado string, o código usa um loop for para transformar a tabela dataFields em uma URL codificada, como hello=world&foo=bar. Isso é usado como HTTP POST dados.
+
+Teste este código indo primeiro para pastebin.com/api#1 e obter uma chave de API (Você precisará de uma conta Pastebin para fazer isso). Em seguida, cole seu desenvolvedor exclusivo na api_dev_key de campo na tabela dataFields do exemplo de código. Preencha qualquer outra informação sobre a postagem que deseja fazer e execute esta código em um Script (não um LocalScript). Se tudo correr bem, você receberá um URL para sua nova pasta na janela Saída (ou alguma string de erro do pastebin).
+
+Novo post do Pastebin
+local HttpService = game:GetService("HttpService")
+
+local URL_PASTEBIN_NEW_PASTE = "https://pastebin.com/api/api_post.php"
+local dataFields = {
+	-- Pastebin API developer key from
+	-- https://pastebin.com/api#1
+	["api_dev_key"] = "FILL THIS WITH YOUR API DEVELOPER KEY",
+
+	["api_option"] = "paste", -- keep as "paste"
+	["api_paste_name"] = "HttpService:PostAsync", -- paste name
+	["api_paste_code"] = "Hello, world", -- paste content
+	["api_paste_format"] = "text", -- paste format
+	["api_paste_expire_date"] = "10M", -- expire date
+	["api_paste_private"] = "0", -- 0=public, 1=unlisted, 2=private
+	["api_user_key"] = "", -- user key, if blank post as guest
+}
+
+-- The pastebin API uses a URL encoded string for post data
+-- Other APIs might use JSON, XML or some other format
+local data = ""
+for k, v in pairs(dataFields) do
+	data = data .. ("&%s=%s"):format(HttpService:UrlEncode(k), HttpService:UrlEncode(v))
+end
+data = data:sub(2) -- Remove the first &
+
+-- Here's the data we're sending
+print(data)
+
+-- Make the request
+local response = HttpService:PostAsync(URL_PASTEBIN_NEW_PASTE, data, Enum.HttpContentType.ApplicationUrlEncoded, false)
+-- The response will be the URL to the new paste (or an error string if something was wrong)
+print(response)
+Este exemplo de código demonstra o envio de uma única solicitação HTTP PATCH com JSON dados para o ponto de extremidade de associação do grupo de atualização do Open Cloud. Cada endpoint do Open Cloud requer a adição de sua chave de API para o cabeçalho x-api-key para receber uma resposta bem-sucedida. A API gerada chave deve ser armazenada como um segredo que pode ser recuperado posteriormente com HttpService:GetSecret("NOME DO SEGREDO DA CHAVE DA API").
+
+Nuvem aberta via HttpService
+-- Remember to set enable HTTP Requests in game settings!
+local HttpService = game:GetService("HttpService")
+
+local groupId = "your_group_id"
+local membershipId = "your_membership_id"
+local roleId = "your_role_id"
+
+local function request()
+	local response = HttpService:RequestAsync({
+		Url = `https://apis.roblox.com/cloud/v2/groups/{groupId}/memberships/{membershipId}`, -- Updates a user's group membership
+		Method = "PATCH",
+		Headers = {
+			["Content-Type"] = "application/json", -- When sending JSON, set this!
+			["x-api-key"] = HttpService:GetSecret("APIKey"), -- Set in Creator Hub
+		},
+		Body = HttpService:JSONEncode({ role = `groups/{groupId}/roles/{roleId}` }),
+	})
+
+	if response.Success then
+		print("The response was successful:", response.StatusCode, response.StatusMessage)
+	else
+		print("The response returned an error:", response.StatusCode, response.StatusMessage)
+	end
+	print("Response body:\n", response.Body)
+	print("Response headers:\n", HttpService:JSONEncode(response.Headers))
+end
+
+-- Remember to wrap the function in a 'pcall' to prevent the script from breaking if the request fails
+local success, message = pcall(request)
+if not success then
+	print("The Http request failed to send:", message)
+end
+Resumo
+Propriedades
+HttpEnabled:booleano
+Segurança do usuário localLer Parallel
+Indica se as solicitações HTTP podem ser enviadas para sites externos.
+
+Ver todos os herdados de Instance
+Ver todos os herdados de Object
+Métodos
+:corda
+Escrever Parallel
+Gera uma string aleatória UUID/GUID, opcionalmente com curly braces.
+
+GetSecret(chave :string):Segredo
+Escrever Parallel
+Retorna um Secret da loja de segredos.
+
+JSONDecode(entrada: string):Variante
+Escrever Parallel
+Decodifica uma string JSON em uma tabela Luau.
+
+JSONEncode(entrada: Variant):string
+Escrever Parallel
+Gerar uma string JSON de uma tabela Luau.
+
+UrlEncode(entrada: string):string
+Escrever Parallel
+Substitui caracteres não seguros de URL por "%" e dois caracteres hexadecimais.
+
+GetAsync(url :Variant,nocache :boolean,headers :Variant):string
+Rendimentos
+Envia um pedido HTTP GET .
+
+PostAsync(url :Variant,data :string,content_type :Enum.HttpContentType,compress :boolean,headers :Variant):string
+Rendimentos
+Envia um pedido HTTP POST .
+
+RequestAsync(requestOptions : Dictionary):Dictionary
+Rendimentos
+Envia um pedido HTTP usando qualquer método HTTP dado um dicionário de informações.
+
+Ver todos os herdados de Instance
+Ver todos os herdados de Object
+Eventos
+Ver todos os herdados de Instance
+Ver todos os herdados de Object
+Propriedades
+Habilitado para HTTP
+booleano
+Segurança do usuário localLer Parallel
+Quando definido para true, permite que scripts enviem solicitações para sites usando HttpService:GetAsync(), HttpService:PostAsync() e HttpService:RequestAsync().
+
+Essa propriedade deve ser alternada através da interface Configurações do Jogo no Studio, ou para experiências não publicadas definindo essa propriedade para usando a barra de comando :
+
+jogo:GetService("HttpService"). HttpEnabled = verdadeiro
+
+Ver todos os herdados de Instance
+Ver todos os herdados de Object
+Métodos
+Gerar GUID
+corda
+Escrever Parallel
+Este método gera uma string de identificador universalmente única aleatória UUID (UUID).Os dezesseis bytes de um UUID são representados como 32 dígitos hexadecimais (base 16), exibidos em cinco grupos separados por hifens na forma 8-4-4-4-12 para um total de 36 caracteres, por exemplo 123e4567-e89b-12d3-a456-426655440000 .
+
+A especificação UUID usada é Versão 4 (aleatória), variante 1 (DCE 1.1, ISO/IEC 11578:1996).Os UIDs desta versão são os mais comumente usados devido à sua simplicidade, pois são gerados aleatoriamente inteiramente.Observe que esta versão não tem certas características que outras versões do UUID têm, como marcas de tempo codificadas, endereços MAC ou classificação baseada em tempo, como UUIDv7 ou ULID.
+
+Existem mais de 5.3×10 36 UIDs exclusivos v4, nos quais a probabilidade de encontrar um duplicado dentro de 103 trilhões de UIDs é de um em um bilhão.
+
+O argumento wrapInCurlyBraces determina se a string retornada está em curvetas ( {} ). Por exemplo:
+
+verdadeiro: {94b717b2-d54f-4340-a504-bd809ef5bf5c}
+false : db454790-7563-44ed-ab4b-397ff5df737b
+Parâmetros
+wrapInCurlyBraces: booleano
+Se a string retornada deve ser embalada em parênteses curvos ( {} ).
+
+Valor Padrão: true
+
+Devolução
+corda
+O UUID gerado aleatoriamente.
+
+Amostras de código
+Este exemplo usa o método GenerateGUID do HttpService para gerar e imprimir um identificador universalmente exclusivo.
+
+HttpService GenerateGUID
+local HttpService = game:GetService("HttpService")
+
+local result = HttpService:GenerateGUID(true)
+
+print(result) --> Example output: {4c50eba2-d2ed-4d79-bec1-02a967f49c58}
+Obter segredo
+Segredo
+Escrever Parallel
+Este método retorna um valor previamente adicionado à loja de segredos para a experiência.O conteúdo secreto não é impressível e não está disponível quando a experiência é executada localmente.
+
+O retornado Secret pode ser transformado usando métodos integrados, como Secret:AddPrefix(). Espera-se que seja enviado como parte de uma solicitação HTTP.
+
+Para mais informações, veja o guia de uso.
+
+Parâmetros
+key: string
+Valor Padrão: ""
+
+Devolução
+Segredo
+JSONDecode
+Variante
+Escrever Parallel
+Este método transforma um objeto JSON ou array em uma tabela Luau com as seguintes características:
+
+As chaves da tabela são strings ou números, mas não ambos. Se um objeto JSON contiver ambos, as chaves de string são ignoradas.
+Um objeto JSON vazio gera uma tabela Luau vazia ( {} ).
+Se a string input não for um objeto JSON válido, este método irá lançar um erro.
+Para codificar uma tabela Luau em um objeto JSON, use o método HttpService:JSONEncode().
+
+Este método pode ser usado independentemente de se as solicitações HTTP estão habilitadas.
+
+Parâmetros
+Entrada: String
+O objeto JSON sendo decodificado.
+
+Valor Padrão: ""
+
+Devolução
+Variante
+O objeto JSON decodificado como uma tabela Luau.
+
+Amostras de código
+Este exemplo de código fornece um exemplo de cadeia de caracteres de formato JSON e analisa-o usando o JSONDecode do HttpService. Em seguida, ele verifica se o JSON foi analisado corretamente e imprime algumas das informações dentro do objeto.
+
+Tente editar a string JSON para experimentar o formato. Experimente também inspecionando os dados em Lua para se sentir confortável com a representação Lua dos dados (tabelas e outros valores).
+
+HttpService JSONDecode
+local HttpService = game:GetService("HttpService")
+
+local jsonString = [[
+{
+	"message": "success",
+	"info": {
+		"points": 120,
+		"isLeader": true,
+		"user": {
+			"id": 12345,
+			"name": "JohnDoe"
+		},
+		"past_scores": [50, 42, 95],
+		"best_friend": null
+	}
+}
+]]
+
+local data = HttpService:JSONDecode(jsonString)
+
+if data.message == "success" then
+	-- Since tab["hello"] and tab.hello are equivalent,
+	-- you could also use data["info"]["points"] here:
+	print("I have " .. data.info.points .. " points")
+	if data.info.isLeader then
+		print("I am the leader")
+	end
+	print("I have " .. #data.info.past_scores .. " past scores")
+
+	print("All the information:")
+	for key, value in pairs(data.info) do
+		print(key, typeof(value), value)
+	end
+end
+JSONEncode
+corda
+Escrever Parallel
+Este método transforma uma tabela Luau em um objeto JSON ou array com base nas seguintes diretrizes:
+
+As chaves da tabela devem ser strings ou números. Se uma tabela contiver ambas, um array tem prioridade (chaves de strings são ignoradas).
+
+Uma tabela vazia de Luau ( {} ) gera um array JSON vazio.
+
+O valor nil nunca é gerado.
+
+Referências de tabela cíclicas causam um erro.
+
+Este método permite valores como inf e nan que não são JSON válidos.Isso pode causar problemas se você quiser usar o JSON emitido em outro lugar.
+
+Para reverter o processo de codificação e decodificar um objeto JSON, use o método HttpService:JSONDecode().
+
+Este método pode ser usado independentemente de se as solicitações HTTP estão habilitadas.
+
+Parâmetros
+entrada: Variante
+A tabela Luau de entrada.
+
+Valor Padrão: ""
+
+Devolução
+corda
+A cadeia de caracteres JSON retornada.
+
+Amostras de código
+Este exemplo de código transforma uma guia de tabela Lua em um JSON usando o JSONEncode do HttpService. Então, ele imprime a string.
+
+Tente editar a tabela Lua para ver como a saída JSON muda.
+
+HttpService JSONEncode
+local HttpService = game:GetService("HttpService")
+
+local tab = {
+	-- Remember: these lines are equivalent
+	--["message"] = "success",
+	message = "success",
+
+	info = {
+		points = 123,
+		isLeader = true,
+		user = {
+			id = 12345,
+			name = "JohnDoe",
+		},
+		past_scores = { 50, 42, 95 },
+		best_friend = nil,
+	},
+}
+
+local json = HttpService:JSONEncode(tab)
+print(json)
+UrlEncode
+corda
+Escrever Parallel
+Este método codifica em porcentagem uma determinada string para que os caracteres reservados sejam codificados corretamente com % e dois caracteres hexadecimais.
+
+Isso é útil ao formatar URLs para uso com HttpService:GetAsync() / HttpService:PostAsync() ou POST dados do tipo de mídia application/x-www-form-urlencoded ( Enum.HttpContentType.ApplicationUrlEncoded ).
+
+Por exemplo, quando você codifica o URL https://www.roblox.com/discover#/, este método retorna https%3A%2F%2Fwww%2Eroblox%2Ecom%2Fdiscover%23%2F .
+
+Parâmetros
+Entrada: String
+Uma cadeia de caracteres (URL) para codificar.
+
+Valor Padrão: ""
+
+Devolução
+corda
+Uma string codificada.
+
+Amostras de código
+Este exemplo de código usa UrlEncode para transformar uma string em uma string segura, codificada em porcentagem que pode ser usada em uma URL como argumento.Observe como apenas caracteres não reservados (letras, números e -_.~ ) não são transformados em equivalentes codificados em porcentagem.Personagens com acentos também são transformados (por exemplo, é é transformado em %C3).
+
+HttpService UrlEncode
+local HttpService = game:GetService("HttpService")
+
+local content = "Je suis allé au cinéma." -- Francês para "Eu fui ao cinema"
+local result = HttpService:UrlEncode(content)
+
+print(result) --> Je%20suis%20all%C3%A9%20au%20cinema%2E
+Pastebin.com é um site que permite aos usuários colar texto (geralmente fonte código) para que outros vejam publicamente. Este exemplo de código usa HttpService PostAsync e a API da Web do pastebin para criar automaticamente uma nova pasta pública no local na rede Internet. Como a API do pastebin foi projetada para receber dados como um URL codificado string, o código usa um loop for para transformar a tabela dataFields em uma URL codificada, como hello=world&foo=bar. Isso é usado como HTTP POST dados.
+
+Teste este código indo primeiro para pastebin.com/api#1 e obter uma chave de API (Você precisará de uma conta Pastebin para fazer isso). Em seguida, cole seu desenvolvedor exclusivo na api_dev_key de campo na tabela dataFields do exemplo de código. Preencha qualquer outra informação sobre a postagem que deseja fazer e execute esta código em um Script (não um LocalScript). Se tudo correr bem, você receberá um URL para sua nova pasta na janela Saída (ou alguma string de erro do pastebin).
+
+Novo post do Pastebin
+local HttpService = game:GetService("HttpService")
+
+local URL_PASTEBIN_NEW_PASTE = "https://pastebin.com/api/api_post.php"
+local dataFields = {
+	-- Pastebin API developer key from
+	-- https://pastebin.com/api#1
+	["api_dev_key"] = "FILL THIS WITH YOUR API DEVELOPER KEY",
+
+	["api_option"] = "paste", -- keep as "paste"
+	["api_paste_name"] = "HttpService:PostAsync", -- paste name
+	["api_paste_code"] = "Hello, world", -- paste content
+	["api_paste_format"] = "text", -- paste format
+	["api_paste_expire_date"] = "10M", -- expire date
+	["api_paste_private"] = "0", -- 0=public, 1=unlisted, 2=private
+	["api_user_key"] = "", -- user key, if blank post as guest
+}
+
+-- The pastebin API uses a URL encoded string for post data
+-- Other APIs might use JSON, XML or some other format
+local data = ""
+for k, v in pairs(dataFields) do
+	data = data .. ("&%s=%s"):format(HttpService:UrlEncode(k), HttpService:UrlEncode(v))
+end
+data = data:sub(2) -- Remove the first &
+
+-- Here's the data we're sending
+print(data)
+
+-- Make the request
+local response = HttpService:PostAsync(URL_PASTEBIN_NEW_PASTE, data, Enum.HttpContentType.ApplicationUrlEncoded, false)
+-- The response will be the URL to the new paste (or an error string if something was wrong)
+print(response)
+GetAsync
+corda
+Rendimentos
+Este método envia um pedido HTTP GET .Ela funciona de forma semelhante a RequestAsync() exceto que aceita parâmetros de solicitação HTTP como parâmetros de método em vez de um único dicionário e retorna apenas o corpo da resposta HTTP.Em geral, este método é útil apenas como abreviação e RequestAsync() deve ser usado na maioria dos casos.
+
+Quando true , o parâmetro nocache impede que este método armazene resultados de chamadas anteriores com o mesmo url.
+
+Parâmetros
+url: Variante
+O endereço da web de onde você está solicitando dados.
+
+Valor Padrão: ""
+nocache: booleano
+Se o pedido armazena (aches) a resposta.
+
+Valor Padrão: false
+cabeçalhos: Variante
+Usado para especificar alguns cabeçalhos de solicitação HTTP.
+
+Valor Padrão: ""
+
+Devolução
+corda
+O corpo de resposta da solicitação GET.
+
+Amostras de código
+Este exemplo de código usa o GetAsync do HttpService para fazer um pedido para Abrir Notificação, um serviço web que fornece dados da NASA.O pedido é feito a um endpoint que fornece informações sobre quantos astronautas estão atualmente no espaço.A resposta é fornecida no formato JSON, então é analisada usando o JSONDecode.Finalmente, os dados de resposta são então processados e impressos no Resultado.
+
+Teste este script colando o código de origem em um Script (HttpService não pode ser usado por LocaisScripts).Além disso, certifique-se de habilitar solicitações HTTP em suas Configurações do Jogo (Início > Configurações do Jogo).
+
+Astronautas no Espaço
+local HttpService = game:GetService("HttpService")
+
+local URL_ASTROS = "http://api.open-notify.org/astros.json"
+
+-- Faça o pedido para o nosso URL de endpoint
+local response = HttpService:GetAsync(URL_ASTROS)
+
+-- Analise a resposta JSON
+local data = HttpService:JSONDecode(response)
+
+-- A informação na tabela de dados depende da resposta JSON
+if data.message == "success" then
+	print("There are currently " .. data.number .. " astronauts in space:")
+	for i, person in pairs(data.people) do
+		print(i .. ": " .. person.name .. " is on " .. person.craft)
+	end
+end
+Este exemplo de código usa o GetAsync do HttpService para fazer uma solicitação a um ponto de extremidade no Open Notify, um site que fornece informações da NASA. O ponto de extremidade fornece informações sobre a localização atual da Estação Espacial Internacional. Este exemplo usa Uma técnica de codificação defensiva que você deve usar ao fazer solicitações da web. Ele encapsula a chamada para GetAsync e JSONDecode em pcall, que protege nosso script de gerar um erro se qualquer um deles falhar. Em seguida, ele verifica o resposta para todos os dados adequados antes de usá-lo. Tudo isso é colocado dentro de um função que retorna true ou false dependendo do sucesso da solicitação.
+
+Sempre que estiver trabalhando com solicitações da Web, você deve se preparar para qualquer coisa que dar errado. Talvez seu ponto de extremidade da Web mude ou fique inativo - você não quer que seu scripts de jogo gerando erros e quebrando seu jogo. Você quer lidar com ambos sucesso e fracasso graciosamente - tenha um plano caso seus dados não sejam disponível. Use pcall e faça muitas verificações de validade (instruções if) em seus dados para garantir que você esteja recebendo exatamente o que espera.
+
+Onde fica a Estação Espacial Internacional?
+local HttpService = game:GetService("HttpService")
+
+-- Where is the International Space Station right now?
+local URL_ISS = "http://api.open-notify.org/iss-now.json"
+
+local function printISS()
+	local response
+	local data
+	-- Use pcall in case something goes wrong
+	pcall(function()
+		response = HttpService:GetAsync(URL_ISS)
+		data = HttpService:JSONDecode(response)
+	end)
+	-- Did our request fail or our JSON fail to parse?
+	if not data then
+		return false
+	end
+
+	-- Fully check our data for validity. This is dependent on what endpoint you're
+	-- to which you're sending your requests. For this example, this endpoint is
+	-- described here:  http://open-notify.org/Open-Notify-API/ISS-Location-Now/
+	if data.message == "success" and data.iss_position then
+		if data.iss_position.latitude and data.iss_position.longitude then
+			print("The International Space Station is currently at:")
+			print(data.iss_position.latitude .. ", " .. data.iss_position.longitude)
+			return true
+		end
+	end
+	return false
+end
+
+if printISS() then
+	print("Success")
+else
+	print("Something went wrong")
+end
+PostAsync
+corda
+Rendimentos
+Este método envia um pedido HTTP POST .Ela funciona de forma semelhante a RequestAsync() exceto que aceita parâmetros de solicitação HTTP como parâmetros de método em vez de um único dicionário e retorna apenas o corpo da resposta HTTP.Em geral, este método é útil apenas como abreviação e RequestAsync() deve ser usado na maioria dos casos.
+
+Quando true , o parâmetro compress controla se grandes corpos de solicitação serão compactados usando gzip .
+
+Parâmetros
+url: Variante
+O endereço de destino para os dados.
+
+Valor Padrão: ""
+dados: cadeia de caracteres
+Os dados sendo enviados.
+
+Valor Padrão: ""
+content_type: Enum.HttpContentType
+Modifica o valor no cabeçalho Content-Type enviado com a solicitação.
+
+Valor Padrão: "ApplicationJson"
+Comprimir: booleano
+Determina se os dados são compactados ( gzipped ) ao enviados.
+
+Valor Padrão: false
+cabeçalhos: Variante
+Usado para especificar alguns cabeçalhos de solicitação HTTP.
+
+Valor Padrão: ""
+
+Devolução
+corda
+A resposta HTTP enviada de volta indicando o resultado da solicitação.
+
+Amostras de código
+Pastebin.com é um site que permite aos usuários colar texto (geralmente fonte código) para que outros vejam publicamente. Este exemplo de código usa HttpService PostAsync e a API da Web do pastebin para criar automaticamente uma nova pasta pública no local na rede Internet. Como a API do pastebin foi projetada para receber dados como um URL codificado string, o código usa um loop for para transformar a tabela dataFields em uma URL codificada, como hello=world&foo=bar. Isso é usado como HTTP POST dados.
+
+Teste este código indo primeiro para pastebin.com/api#1 e obter uma chave de API (Você precisará de uma conta Pastebin para fazer isso). Em seguida, cole seu desenvolvedor exclusivo na api_dev_key de campo na tabela dataFields do exemplo de código. Preencha qualquer outra informação sobre a postagem que deseja fazer e execute esta código em um Script (não um LocalScript). Se tudo correr bem, você receberá um URL para sua nova pasta na janela Saída (ou alguma string de erro do pastebin).
+
+Novo post do Pastebin
+local HttpService = game:GetService("HttpService")
+
+local URL_PASTEBIN_NEW_PASTE = "https://pastebin.com/api/api_post.php"
+local dataFields = {
+	-- Pastebin API developer key from
+	-- https://pastebin.com/api#1
+	["api_dev_key"] = "FILL THIS WITH YOUR API DEVELOPER KEY",
+
+	["api_option"] = "paste", -- keep as "paste"
+	["api_paste_name"] = "HttpService:PostAsync", -- paste name
+	["api_paste_code"] = "Hello, world", -- paste content
+	["api_paste_format"] = "text", -- paste format
+	["api_paste_expire_date"] = "10M", -- expire date
+	["api_paste_private"] = "0", -- 0=public, 1=unlisted, 2=private
+	["api_user_key"] = "", -- user key, if blank post as guest
+}
+
+-- The pastebin API uses a URL encoded string for post data
+-- Other APIs might use JSON, XML or some other format
+local data = ""
+for k, v in pairs(dataFields) do
+	data = data .. ("&%s=%s"):format(HttpService:UrlEncode(k), HttpService:UrlEncode(v))
+end
+data = data:sub(2) -- Remove the first &
+
+-- Here's the data we're sending
+print(data)
+
+-- Make the request
+local response = HttpService:PostAsync(URL_PASTEBIN_NEW_PASTE, data, Enum.HttpContentType.ApplicationUrlEncoded, false)
+-- The response will be the URL to the new paste (or an error string if something was wrong)
+print(response)
+RequestAsync
+Dictionary
+Rendimentos
+Este método envia um pedido HTTP usando um dicionário para especificar os dados de solicitação, como o URL alvo, o método, os cabeçalhos e os dados do corpo da solicitação.Ele retorna um dicionário que descreve os dados de resposta recebidos.Opcionalmente, o pedido pode ser compactado usando Enum.HttpCompression.
+
+Solicitar campos de dicionário
+<th>Tipo</th>
+
+    <th>Requerido</th>
+
+    <th>Descrição</th>
+  </tr>
+</thead>
+
+<tbody>
+  <tr>
+    <td><code>Url</code></td>
+
+    <td>Corda</td>
+
+    <td>sim</td>
+
+    <td>O URL-alvo para este pedido. Deve usar <code>http</code> ou <code>https</code> protocolos.</td>
+  </tr>
+
+  <tr>
+    <td><code>Método</code></td>
+
+    <td>Corda</td>
+
+    <td>no</td>
+
+    <td>O método HTTP usado por este pedido, na maioria das vezes <code>obter</code> ou <code>enviar</code>.</td>
+  </tr>
+
+  <tr>
+    <td><code>Cabeçalhos</code></td>
+
+    <td>Dicionário</td>
+
+    <td>no</td>
+
+    <td>Um dicionário de cabeçalhos a ser usado com este pedido. A maioria dos cabeçalhos HTTP são aceitos aqui, mas não todos.</td>
+  </tr>
+
+  <tr>
+    <td><code>Corpo</code></td>
+
+    <td>Corda</td>
+
+    <td>no</td>
+
+    <td>O corpo da solicitação.Pode ser qualquer string, incluindo dados binários.Deve ser excluído ao usar os métodos <code>GET</code> ou <code>HEAD</code> HTTP.Pode ser necessário especificar o cabeçalho <code>Tipo de Conteúdo</code> ao enviar JSON ou outros formatos.</td>
+  </tr>
+
+  <tr>
+    <td><code>Comprimir</code></td>
+
+    <td><code>Enumeração.HttpCompression</code></td>
+
+    <td>no</td>
+
+    <td>Um campo de compressão opcional que compactará os dados na solicitação.O valor pode ser <code>Enum.HttpCompression.None</code> ou <code>Enum.HttpCompression.Gzip</code>.</td>
+  </tr>
+</tbody>
+Qual o nome
+Métodos HTTP suportados
+Os métodos de solicitação HTTP especificam o propósito da solicitação feita e o que é esperado se a solicitação for bem-sucedida.Por exemplo, o método de solicitação GET informa ao servidor no endereço solicitado que um recurso está sendo solicitado e, se for bem-sucedido, o recurso nesse endereço será retornado.Da mesma forma, o método de solicitação HEAD faz o mesmo, exceto que o servidor sabe retornar uma resposta sem um elemento Body.
+
+<th>Descrição</th>
+
+    <th>Segura</th>
+  </tr>
+</thead>
+
+<tbody>
+  <tr>
+    <td><code>OBTER</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/GET">ⓘ</a></td>
+
+    <td>O método <code>GET</code> solicita o recurso no endereço especificado. Não suporta o uso do parâmetro <code>Corpo</code>.</td>
+
+    <td>Sim</td>
+  </tr>
+
+  <tr>
+    <td><code>Cabeça</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/HEAD">ⓘ</a></td>
+
+    <td>O método <code>Cabeça</code> solicita uma resposta idêntica a um pedido <code>Obter</code>, mas sem corpo de resposta.Não suporta o uso do parâmetro <code>Corpo</code>.</td>
+
+    <td>Sim</td>
+  </tr>
+
+  <tr>
+    <td><code>POST</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/POST">ⓘ</a></td>
+
+    <td>O método <code>POST</code> envia os dados fornecidos de <code>Corpo</code> ao endereço solicitado.</td>
+
+    <td>No</td>
+  </tr>
+
+  <tr>
+    <td><code>PUT</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/PUT">ⓘ</a></td>
+
+    <td>O método <code>PUT</code> substitui todas as iterações atuais do recurso especificado dentro dos dados fornecidos <code>Corpo</code>.</td>
+
+    <td>No</td>
+  </tr>
+
+  <tr>
+    <td><code>DELETE</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/DELETE">ⓘ</a></td>
+
+    <td>O método <code>DELETE</code> exclui o recurso especificado nos dados fornecidos <code>Corpo</code> na endereço solicitado.</td>
+
+    <td>No</td>
+  </tr>
+
+  <tr>
+    <td><code>OPÇÕES</code>    <a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/OPTIONS">ⓘ</a></td>
+
+    <td>O método <code>OPÇÕES</code> solicita as opções de comunicação permitidas para o endereço fornecido.</td>
+
+    <td>Sim</td>
+  </tr>
+
+  <tr>
+    <td><code>RASTRO</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/TRACE">ⓘ</a></td>
+
+    <td>O método <code>TRACE</code> realiza um teste de loop-back de mensagem ao longo do caminho para o recurso especificado nos dados fornecidos <code>Corpo</code>.</td>
+
+    <td>Sim</td>
+  </tr>
+
+  <tr>
+    <td><code>PATCH</code><a href="https://developer.mozilla.org/docs/Web/HTTP/Methods/PATCH">ⓘ</a></td>
+
+    <td>O método <code>PATCH</code> aplica alterações parciais ao recurso especificado nos dados fornecidos do <code>Corpo</code> na endereço solicitado.</td>
+
+    <td>No</td>
+  </tr>
+</tbody>
+Método
+Cabeçalhos HTTP
+No dicionário de solicitações, você pode especificar cabeçalhos HTTP personalizados para usar na solicitação.No entanto, alguns cabeçalhos não podem ser especificados.Por exemplo, Content-Length é determinado a partir do corpo da solicitação.User-Agent e Roblox-Id são bloqueados pelo Roblox.Outros cabeçalhos como Accept ou Cache-Control usam valores padrão, mas podem ser substituídos.Mais comumente, algumas APIs REST podem exigir que as chaves da API ou outra autenticação de serviço sejam especificadas nos cabeçalhos de solicitação.
+
+O método RequestAsync() não detecta o formato do conteúdo do corpo.Muitos servidores web requerem que o cabeçalho Content-Type seja definido adequadamente ao enviar determinados formatos.Outros métodos de usam o enum; para este método, defina o cabeçalho apropriadamente: , , , ou são valores de cabeçalho de substituição para os respectivos valores de enum.
+
+Campos do dicionário de resposta
+RequestAsync() retorna um dicionário que contém os seguintes campos:
+
+<th>Tipo</th>
+
+    <th>Descrição</th>
+  </tr>
+</thead>
+
+<tbody>
+  <tr>
+    <td><code>Sucesso</code></td>
+
+    <td>Booleano</td>
+
+    <td>O status de sucesso da solicitação. Isso é verdade se e somente se o <code>StatusCode</code> estiver dentro do alcance <code>200</code> - <code>299</code>.</td>
+  </tr>
+
+  <tr>
+    <td><code>Código de Status</code></td>
+
+    <td>Inteiro</td>
+
+    <td>O código de resposta HTTP que identifica o status da resposta.</td>
+  </tr>
+
+  <tr>
+    <td><code>Message de Status</code></td>
+
+    <td>Corda</td>
+
+    <td>A mensagem de status que foi enviada de volta.</td>
+  </tr>
+
+  <tr>
+    <td><code>Cabeçalhos</code></td>
+
+    <td>Dicionário</td>
+
+    <td>Um dicionário de cabeçalhos que foram definidos nesta resposta.</td>
+  </tr>
+
+  <tr>
+    <td><code>Corpo</code></td>
+
+    <td />
+
+    <td>O corpo da solicitação (conteúdo) recebido na resposta.</td>
+  </tr>
+</tbody>
+Qual o nome
+Caixas de erro
+RequestAsync() eleva um erro se os tempos de resposta expirarem ou se o servidor alvo rejeitar a solicitação.Se um serviço web cair por algum motivo, pode causar scripts que usam esse método a parar de funcionar completamente.Muitas vezes é uma boa ideia envolver chamadas a este método em pcall() e lidar com casos de falha de forma elegante se a informação necessária não estiver disponível.
+
+Limitações
+A limitação atual para enviar e receber solicitações HTTP é de 500 solicitações por minuto. Solicitações acima desse limite falharão.
+
+Parâmetros
+requestOptions: Dicionário
+Um dicionário que contém informações a serem solicitadas do servidor especificado.
+
+Valor Padrão: ""
+
+Devolução
+Dictionary
+Um dicionário que contém informações de resposta do servidor especificado.
+
+Amostras de código
+Este exemplo de código demonstra o envio de uma única solicitação HTTP POST com JSON dados para o site httpbin.org, um site que ajuda a depurar solicitações HTTP. Aqui, enviamos alguns dados JSON usando HttpService:JSONEncode() e também definindo o cabeçalho Content-Type.
+
+Enviando uma solicitação HTTP
+-- Remember to set enable HTTP Requests in game settings!
+local HttpService = game:GetService("HttpService")
+
+local function request()
+	local response = HttpService:RequestAsync({
+		Url = "http://httpbin.org/post", -- This website helps debug HTTP requests
+		Method = "POST",
+		Headers = {
+			["Content-Type"] = "application/json", -- When sending JSON, set this!
+		},
+		Body = HttpService:JSONEncode({ hello = "world" }),
+	})
+
+	if response.Success then
+		print("Status code:", response.StatusCode, response.StatusMessage)
+		print("Response body:\n", response.Body)
+	else
+		print("The request failed:", response.StatusCode, response.StatusMessage)
+	end
+end
+
+-- Remember to wrap the function in a 'pcall' to prevent the script from breaking if the request fails
+local success, message = pcall(request)
+if not success then
+	print("Http Request failed:", message)
+end
+Este exemplo de código demonstra o envio de uma única solicitação HTTP PATCH com JSON dados para o ponto de extremidade de associação do grupo de atualização do Open Cloud. Cada endpoint do Open Cloud requer a adição de sua chave de API para o cabeçalho x-api-key para receber uma resposta bem-sucedida. A API gerada chave deve ser armazenada como um segredo que pode ser recuperado posteriormente com HttpService:GetSecret("NOME DO SEGREDO DA CHAVE DA API").
+
+Nuvem aberta via HttpService
+-- Remember to set enable HTTP Requests in game settings!
+local HttpService = game:GetService("HttpService")
+
+local groupId = "your_group_id"
+local membershipId = "your_membership_id"
+local roleId = "your_role_id"
+
+local function request()
+	local response = HttpService:RequestAsync({
+		Url = `https://apis.roblox.com/cloud/v2/groups/{groupId}/memberships/{membershipId}`, -- Updates a user's group membership
+		Method = "PATCH",
+		Headers = {
+			["Content-Type"] = "application/json", -- When sending JSON, set this!
+			["x-api-key"] = HttpService:GetSecret("APIKey"), -- Set in Creator Hub
+		},
+		Body = HttpService:JSONEncode({ role = `groups/{groupId}/roles/{roleId}` }),
+	})
+
+	if response.Success then
+		print("The response was successful:", response.StatusCode, response.StatusMessage)
+	else
+		print("The response returned an error:", response.StatusCode, response.StatusMessage)
+	end
+	print("Response body:\n", response.Body)
+	print("Response headers:\n", HttpService:JSONEncode(response.Headers))
+end
+
+-- Remember to wrap the function in a 'pcall' to prevent the script from breaking if the request fails
+local success, message = pcall(request)
+if not success then
+	print("The Http request failed to send:", message)
+end
